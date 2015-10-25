@@ -16,13 +16,19 @@
  */
 package org.apache.karaf.decanter.collector.jmx;
 
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.util.*;
+import java.util.regex.Pattern;
+import javax.management.AttributeNotFoundException;
+import javax.management.InstanceNotFoundException;
 
 import javax.management.MBeanAttributeInfo;
+import javax.management.MBeanException;
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
+import javax.management.ReflectionException;
 import javax.management.openmbean.*;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
@@ -47,8 +53,9 @@ public class JmxCollector implements Runnable {
     private String objectName;
     private EventAdmin eventAdmin;
     private Dictionary<String, String> properties;
+    private Pattern attributeNamePattern;
 
-    public JmxCollector(String type, String url, String username, String password, String objectName, EventAdmin eventAdmin, Dictionary<String, String> properties) {
+    public JmxCollector(String type, String url, String username, String password, String objectName, EventAdmin eventAdmin, Dictionary<String, String> properties, String attributeNameRegexFilter) {
         this.type = type;
         this.url = url;
         this.username = username;
@@ -56,6 +63,9 @@ public class JmxCollector implements Runnable {
         this.eventAdmin = eventAdmin;
         this.objectName = objectName;
         this.properties = properties;
+        if (attributeNameRegexFilter != null){
+            this.attributeNamePattern = Pattern.compile(attributeNameRegexFilter);
+        }
     }
 
     @Override
@@ -156,12 +166,19 @@ public class JmxCollector implements Runnable {
         }
 
         for (MBeanAttributeInfo attribute : attributes) {
+            String attributeName = attribute.getName();
+            if (attributeNamePattern != null && !attributeNamePattern.matcher(attributeName).matches()){
+                continue;
+            }
             try {
-                Object attributeObject = connection.getAttribute(name, attribute.getName());
+                Object attributeObject = connection.getAttribute(name, attributeName);
+                if (attributeObject == null){
+                    continue;
+                }
                 if (attributeObject instanceof String) {
-                    data.put(attribute.getName(), (String) attributeObject);
+                    data.put(attributeName, (String) attributeObject);
                 } else if (attributeObject instanceof ObjectName) {
-                    data.put(attribute.getName(), ((ObjectName) attributeObject).toString());
+                    data.put(attributeName, ((ObjectName) attributeObject).toString());
                 } else if (attributeObject instanceof CompositeDataSupport || attributeObject instanceof CompositeData) {
                     CompositeData cds = (CompositeData) attributeObject;
                     CompositeType compositeType = cds.getCompositeType();
@@ -171,13 +188,13 @@ public class JmxCollector implements Runnable {
                         Object cdsObject = cds.get(key);
                         composite.put(key, cdsObject);
                     }
-                    data.put(attribute.getName(), composite);
+                    data.put(attributeName, composite);
                 } else if (attributeObject instanceof Long
                         || attributeObject instanceof Integer
                         || attributeObject instanceof Boolean
                         || attributeObject instanceof Float
                         || attributeObject instanceof Double) {
-                    data.put(attribute.getName(), attributeObject);
+                    data.put(attributeName, attributeObject);
                 } else if (attributeObject instanceof TabularDataSupport || attributeObject instanceof TabularData) {
                     TabularData tds = (TabularData) attributeObject;
                     TabularType tabularType = tds.getTabularType();
@@ -194,22 +211,22 @@ public class JmxCollector implements Runnable {
                             composite.put(key, cdsObject);
                         }
                     }
-                    data.put(attribute.getName(), list);
+                    data.put(attributeName, list);
                 } else if (attributeObject instanceof Object[]) {
-                    data.put(attribute.getName(), (Object[]) attributeObject);
+                    data.put(attributeName, (Object[]) attributeObject);
                 } else if (attributeObject instanceof long[]) {
-                    data.put(attribute.getName(), (long[]) attributeObject);
+                    data.put(attributeName, (long[]) attributeObject);
                 } else if (attributeObject instanceof String[]) {
-                    data.put(attribute.getName(), (String[]) attributeObject);
+                    data.put(attributeName, (String[]) attributeObject);
                 } else if (attributeObject instanceof int[]) {
-                    data.put(attribute.getName(), (int[]) attributeObject);
+                    data.put(attributeName, (int[]) attributeObject);
                 } else {
-                    data.put(attribute.getName(), attributeObject.toString());
+                    data.put(attributeName, attributeObject.toString());
                 }
             } catch (SecurityException se) {
                 LOGGER.error("SecurityException: ", se);
-            } catch (Exception e) {
-                LOGGER.debug("Could not read attribute " + name.toString() + " " + attribute.getName());
+            } catch (MBeanException | AttributeNotFoundException | InstanceNotFoundException | ReflectionException | IOException e) {
+                LOGGER.debug("Could not read attribute " + name.toString() + " " + attributeName + ": " + e.getLocalizedMessage());
             }
 
         }

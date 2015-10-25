@@ -105,7 +105,12 @@ public class Activator implements BundleActivator {
                     if (properties.get("object.name") != null) {
                         objectName = (String) properties.get("object.name");
                     }
-                    JmxCollector collector = new JmxCollector(type, url, username, password, objectName, eventAdmin, properties);
+
+                    String attributeFilter = null;
+                    if (properties.get("attribute.filter") != null) {
+                        attributeFilter = (String) properties.get("attribute.filter");
+                    }
+                    JmxCollector collector = new JmxCollector(type, url, username, password, objectName, eventAdmin, properties, attributeFilter);
                     Dictionary<String, String> serviceProperties = new Hashtable<String, String>();
                     serviceProperties.put("decanter.collector.name", type);
                     registration = bundleContext.registerService(Runnable.class, collector, serviceProperties);
